@@ -27,6 +27,7 @@ class NameGenerator:
         return f"{self._prefix}{next(self._counter)}{self._suffix}"
 
 
+# TODO don't actually pass this in to expr, a mapping at the end instead
 class Tensor(dtl.TensorVariable):
 
     _name_generator = NameGenerator(prefix="T")
@@ -44,6 +45,48 @@ class Tensor(dtl.TensorVariable):
         return type(self)(name, space, data)
 
 
+class TensorSum(dtl.TensorExpression):
+
+    def __init__(self, lhs, rhs, lhs_indices, rhs_indices, out_indices):
+        self.lhs = lhs
+        self.rhs = rhs
+        self.lhs_indices = lhs_indices
+        self.rhs_indices = rhs_indices
+        self.out_indices = out_indices
+
+
+@functools.singledispatch
+def replace_deindexes(expr):
+    """Replace deindex -> add with TensorSum nodes. This lets us do our
+    evaluations at the right level with singledispatch."""
+    raise AssertionError
+
+
+@replace_deindexes.register
+def _(expr: dtl.deIndex):
+    if not isinstance(expr.scalar_expr, dtl.BinOp):
+        return expr  # need to postorder here too
+
+    lhs = expr.scalar_expr.lhs
+    rhs = expr.scalar_expr.rhs
+
+    assert isinstance(lhs, dtl.IndexedTensor)
+    assert isinstance(rhs, dtl.IndexedTensor)
+    
+    # postorder traversal
+    lhs_tensor_expr = replace_deindexes(lhs.tensor_expr)
+    rhs_tensor_expr = replace_deindexes(rhs.tensor_expr)
+
+    if isinstance(expr.scalar_expr, dtl.AddBinOp):
+        return TensorSum(lhs_tensor_expr, rhs_tensor_expr, lhs.indices, rhs.indices, expr.indices)
+    else:
+        raise NotImplementedError
+
+
+def evaluate(expr):
+    expr = replace_deindexes(expr)
+    return apply(expr)
+
 @functools.singledispatch
 def apply(expr):
     """Apply a postorder traversal to the DAG, computing a result as you go."""
@@ -51,17 +94,26 @@ def apply(expr):
 
 
 @apply.register
-def apply_lambda(expr: dtl.Lambda):
+def _(expr: dtl.Lambda):
     return apply(expr.sub)
 
 
 @apply.register
-def apply_unindex(unindex: dtl.deIndex):
-    indexed = apply(unindex.tensor)
+def _(unindex: dtl.deIndex):
+    # scalar_expr = apply(unindex.scalar_expr)
+    #
+    # input_indices = _stringify(scalar_expr.indices)
+    # output_indices = _stringify(unindex.indices)
+    # return scalar_expr.tensor.copy(data=np.einsum(f"{input_indices}->{output_indices}", scalar_expr.tensor.data))
 
-    input_indices = _stringify(indexed.indices)
-    output_indices = _stringify(unindex.indices)
-    return indexed.tensor.copy(data=np.einsum(f"{input_indices}->{output_indices}", indexed.tensor.data))
+    if isinstance(unindex.scalar_expr, dtl.BinOp):
+        lhs, rhs = 
+
+    lhs, rhs = apply(unindex.scalar_expr)
+
+    for i, j in unindex.indices:
+        output[i, j] = apply(unindex.scalar_expr, [i, j])
+        output[i, j] = lhs[i] * rhs[j]
 
 
 @apply.register
