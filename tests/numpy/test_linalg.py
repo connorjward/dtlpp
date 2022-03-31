@@ -2,7 +2,7 @@ import dtl
 import numpy as np
 import pytest
 
-from dtlnp.tensor import Tensor, apply
+from dtlpp.impls.numpy.tensor import Tensor, apply
 
 
 @pytest.fixture
