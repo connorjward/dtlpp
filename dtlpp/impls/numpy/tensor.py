@@ -5,14 +5,10 @@ import dtl
 import numpy as np
 
 
-BINOPS = {
-    dtl.AddBinOp: np.add,
-    dtl.MulBinOp: np.multiply
-}
+BINOPS = {dtl.AddBinOp: np.add, dtl.MulBinOp: np.multiply}
 
 
 class NameGenerator:
-
     def __init__(self, prefix="", suffix=""):
         if not (prefix or suffix):
             raise ValueError
@@ -28,6 +24,32 @@ class NameGenerator:
         return f"{self._prefix}{next(self._counter)}{self._suffix}"
 
 
+class IndexIterator:
+    def __init__(self, index, space: dtl.VectorSpace):
+        self._index = index
+        self._counter = iter(range(space.dim))
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        """Return a 2-tuple of the index and its current value."""
+        return self._index, next(self._counter)
+
+
+class MultiindexIterator:
+    def __init__(self, index_spaces):
+        iters = [IndexIterator(index, space) for index, space in index_spaces.items()]
+        self._iterator = itertools.product(*iters)
+
+    def __iter__(self):
+        return self
+
+    def __next__(self):
+        """Return a dictionary mapping each index to its current value."""
+        return dict(next(self._iterator))
+
+
 # TODO don't actually pass this in to expr, instead pass a mapping at compute-time
 class Tensor(dtl.TensorVariable):
 
@@ -36,7 +58,7 @@ class Tensor(dtl.TensorVariable):
     def __init__(self, space, name=None, data=None):
         if name is None:
             name = next(self._name_generator)
-        super().__init__(name, space)
+        super().__init__(space, name)
         self.data = data
 
     def copy(self, *, name=None, space=None, data=None):
@@ -61,28 +83,12 @@ def _(expr: dtl.Lambda):
 def _(unindex: dtl.deIndex):
     scalar_expr = apply(unindex.scalar_expr)
 
-    result_shape = tuple(i.space.dim for i in unindex.indices)
-    result = Tensor(None, data=np.zeros(result_shape, dtype=int))
+    result = Tensor(unindex.space, data=np.zeros(unindex.space.shape, dtype=int))
     indexed_result = result[unindex.indices]
 
-    # For the expression (A[i, j] + B[j, k] + C[l, m]).forall(i, k, m) this magic line produces:
-    """
-    for i:
-        for j:
-            for k:
-                for l:
-                    for m:
-                        res[i, k, m] += A[i, j] + B[j, k] + C[l, m]
-                    end for
-                end for
-            end for
-        end for
-    end for
-    """
-    for item in itertools.product(*(iterate_index(i) for i in set(scalar_expr.indices))):
+    for index_map in MultiindexIterator(scalar_expr.index_spaces):
         # We have the index map to look up the values of i, j, k etc so we can index
         # into the numpy arrays.
-        index_map = dict(item)
         value = compute_scalar_expr(scalar_expr, index_map)
         # warning: modifies in place!
         inc_scalar(indexed_result, value, index_map)
