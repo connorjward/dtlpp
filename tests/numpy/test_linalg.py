@@ -1,84 +1,105 @@
 import dtl
+import dtlc
+import dtlpp
 import numpy as np
 import pytest
 
-import dtlpp
-from dtlpp.impls.numpy.tensor import Tensor, apply
+
+@pytest.fixture
+def A():
+    return dtl.TensorVariable(dtlpp.RealVectorSpace(10) ** 2, "A")
+
+
+@pytest.fixture
+def matdata():
+    return np.arange(100, dtype=int).reshape((10, 10))
 
 
 @pytest.fixture
 def x():
-    return Tensor([dtlpp.RealVectorSpace(10)], "x", np.arange(10, dtype=int))
+    return dtl.TensorVariable(dtlpp.RealVectorSpace(10), "x")
 
 
 @pytest.fixture
 def y():
-    return Tensor([dtlpp.RealVectorSpace(10)], "y", np.arange(10, dtype=int))
+    return dtl.TensorVariable(dtlpp.RealVectorSpace(10), "y")
 
 
 @pytest.fixture
 def z():
-    return Tensor([dtlpp.RealVectorSpace(10)], "z", np.arange(10, dtype=int))
+    return dtl.TensorVariable(dtlpp.RealVectorSpace(10), "z")
 
 
-def test_matvec():
-    A = Tensor(
-        dtlpp.RealVectorSpace(10) ** 2, "A", np.arange(100, dtype=int).reshape((10, 10))
-    )
-    x = Tensor(dtlpp.RealVectorSpace(10), "x", np.arange(10, dtype=int))
+@pytest.fixture
+def vecdata():
+    return np.arange(10, dtype=int)
+
+
+def test_matvec(A, x, matdata, vecdata):
     i, j = dtl.indices("i", "j")
     expr = dtl.Lambda([A, x], (A[i, j] * x[j]).forall(i))
 
-    res = apply(expr)
-    assert (res.data == A.data @ x.data).all()
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={A: matdata, x: vecdata})
+
+    assert (result == matdata @ vecdata).all()
 
 
-def test_trace():
-    data = np.arange(100, dtype=int).reshape((10, 10))
-    A = Tensor([dtlpp.RealVectorSpace(10)] * 2, "A", data.copy())
+def test_trace(A, matdata):
     i = dtl.Index("i")
     expr = dtl.Lambda([A], A[i, i].forall())
 
-    tensor = apply(expr)
-    assert (tensor.data == np.trace(data)).all()
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={A: matdata})
+
+    assert (result == np.trace(matdata)).all()
 
 
-def test_transpose():
-    data = np.arange(100, dtype=int).reshape((10, 10))
-    A = Tensor([dtlpp.RealVectorSpace(10)] * 2, "A", data.copy())
+def test_transpose(A, matdata):
     i, j = dtl.indices("i", "j")
     expr = dtl.Lambda([A], A[i, j].forall(j, i))
 
-    tensor = apply(expr)
-    assert (tensor.data == data.T).all()
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={A: matdata})
+
+    assert (result == matdata.T).all()
 
 
-def test_vecdot():
-    x = Tensor([dtlpp.RealVectorSpace(10)], "x", np.arange(10, dtype=int))
-    y = Tensor([dtlpp.RealVectorSpace(10)], "y", np.arange(10, dtype=int))
-
+def test_vecdot(x, y, vecdata):
     i = dtl.Index("i")
-
     expr = dtl.Lambda([x, y], (x[i] * y[i]).forall())
 
-    assert apply(expr).data == np.dot(
-        np.arange(10, dtype=int), np.arange(10, dtype=int)
-    )
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={x: vecdata.copy(), y: vecdata.copy()})
+
+    assert result == vecdata @ vecdata
 
 
-def test_pointwise_vec_add(x, y):
+def test_pointwise_vec_add(x, y, vecdata):
     i = dtl.Index("i")
     expr = dtl.Lambda([x, y], (x[i] + y[i]).forall(i))
-    assert all(apply(expr).data == x.data + y.data)
+
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={x: vecdata.copy(), y: vecdata.copy()})
+
+    assert all(result == 2 * vecdata)
 
 
-def test_pointwise_vec_mul(x, y):
+def test_pointwise_vec_mul(x, y, vecdata):
     i = dtl.Index("i")
     expr = dtl.Lambda([x, y], (x[i] * y[i]).forall(i))
-    assert all(apply(expr).data == x.data * y.data)
+
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={x: vecdata.copy(), y: vecdata.copy()})
+
+    assert all(result == vecdata**2)
 
 
-def test_ternary_add(x, y, z):
+def test_ternary_add(x, y, z, vecdata):
     i = dtl.Index("i")
     expr = dtl.Lambda([x, y, z], (x[i] + y[i] + z[i]).forall(i))
-    assert all(apply(expr).data == x.data + y.data + z.data)
+
+    func = dtlc.lower(expr, backend=dtlc.backends.Backend.PYTHON)
+    result = func(var_map={x: vecdata.copy(), y: vecdata.copy(), z: vecdata.copy()})
+
+    assert all(result == 3 * vecdata)

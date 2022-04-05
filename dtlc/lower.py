@@ -1,7 +1,7 @@
 import dtlc.backends
 
 
-def compile(expr, *, backend=None, **kwargs):
+def lower(expr, *, backend, **kwargs):
     """Compile ``expr`` to an executable.
 
     Returns
@@ -9,6 +9,6 @@ def compile(expr, *, backend=None, **kwargs):
     something that accepts TensorVariables as arguments and performs the computation
     """
     if backend == dtlc.backends.Backend.PYTHON:
-        raise NotImplementedError
+        return dtlc.backends.python.lower(expr, **kwargs)
     else:
         raise ValueError
